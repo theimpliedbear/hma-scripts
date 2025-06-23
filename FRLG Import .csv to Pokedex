@@ -1,0 +1,152 @@
+import csv
+from System.IO import File # For reading external files in HMAs environment
+
+# --- Configuration ---
+INPUT_CSV_FILE_PATH = r"C:\Export\Import\your_pokemon_data.csv" # <--- UPDATED PATH
+                                                               # Make sure this CSV matches the export scripts format.
+START_POKEMON_ID = 0 # Starting Pokemon ID to import (e.g., 0 for Bulbasaur replacement)
+END_POKEMON_ID = 411 # <--- UPDATED END ID (covers IDs 0 to 411, total 412 Pokemon)
+                     # Or set to len(data.pokemon.stats) - 1 to cover all available slots after ROM load.
+
+# --- Script Logic ---
+
+print("--- Starting Pokemon Data Import ---")
+print("Reading data from: {}".format(INPUT_CSV_FILE_PATH))
+
+# Check if a ROM is loaded by attempting to access a table directly from the 'data' object.
+try:
+    test_table_access = data.pokemon.stats
+except NameError:
+    print("Error: 'data' object not found, suggesting no ROM is loaded. Please open a ROM in Hex Maniac Advance.")
+    exit()
+except Exception as e:
+    print("Error: Could not access 'data.pokemon.stats'. Ensure a ROM is loaded and recognized by HMA.")
+    print("Detailed error: {}".format(e))
+    exit()
+
+try:
+    pokemon_stats_table = data.pokemon.stats
+    pokemon_names_table = data.pokemon.names
+    
+    # We know data.pokedex.data is an AnchorGroup and not subscriptable, so we wont attempt to use it here.
+
+except Exception as e:
+    print("Error accessing HMA tables directly: {}".format(e))
+    print("Ensure ROM is loaded and tables are correctly identified by HMA.")
+    exit()
+
+# Get available Pokemon slots in the ROM
+rom_stats_count = len(pokemon_stats_table)
+rom_names_count = len(pokemon_names_table)
+
+# Define the headers for your CSV - REMOVED "EXPGroup"
+CSV_HEADERS = [
+    "ID", "Name",
+    "Type1", "Type2", "HP", "Attack", "Defense", "SpecialAttack", "SpecialDefense", "Speed",
+    "Ability1", "Ability2", "CatchRate", "GenderRatio", "EggGroup1", "EggGroup2",
+    "BaseExperience", "BaseFriendship", "GrowthRate" # REMOVED "EXPGroup"
+]
+
+# Prepare data from CSV
+pokemon_data_from_csv = []
+try:
+    with File.OpenText(INPUT_CSV_FILE_PATH) as file:
+        # Read all lines from the .NET StreamReader into a Python list first
+        csv_lines = []
+        while True:
+            line = file.ReadLine() # Use the .NET ReadLine method
+            if line is None: # ReadLine returns None at end of stream
+                break
+            csv_lines.append(line)
+        
+        # Now pass the list of lines (which is a standard Python iterator) to csv.DictReader
+        reader = csv.DictReader(csv_lines)
+
+        for row in reader:
+            pokemon_data_from_csv.append(row)
+    print("Successfully loaded {} Pokemon entries from CSV.".format(len(pokemon_data_from_csv)))
+except Exception as e:
+    print("Error reading input CSV file: {}".format(e))
+    print("Please ensure the CSV file exists and the path is correct, and its format is valid.")
+    exit()
+
+# Determine the actual range to import based on script config and available ROM slots
+# If END_POKEMON_ID is set high, min() will cap it to the ROMs actual capacity.
+# If CSV has fewer rows than the range implies, the loop will stop at CSV end.
+actual_end_id = min(END_POKEMON_ID, rom_stats_count - 1, rom_names_count - 1)
+
+
+# --- IMPORTANT WARNING FOR POKEDEX DATA ---
+print("\n--- IMPORTANT WARNING ---")
+print("This script will NOT update Pokedex Entry text, Species name (in Pokedex view), Height, or Weight.")
+print("These fields are in the 'data.pokedex.data' table (an AnchorGroup) which is not scriptable by ID.")
+print("You MUST update these manually in Hex Maniac Advance after running this script.")
+print("--- END WARNING ---\n")
+
+# Initialize a counter for successfully imported Pokemon
+successful_imports_count = 0 
+
+# Process each Pokemon from the CSV
+for csv_row in pokemon_data_from_csv:
+    try:
+        poke_id = int(csv_row["ID"])
+
+        # Check if ID is within the configured import range
+        if poke_id < START_POKEMON_ID or poke_id > actual_end_id:
+            # print("Skipping Pokemon ID {} from CSV: ID is outside the configured import range ({} to {}).".format(poke_id, START_POKEMON_ID, actual_end_id)) # Commented out for fewer popups
+            continue # Skip this row
+
+        # Check if ID is within the ROMs actual capacity
+        if poke_id >= rom_stats_count or poke_id >= rom_names_count:
+            # print("Skipping Pokemon ID {} from CSV: ID is out of bounds for existing ROM slots (Max ID: {}).".format(poke_id, min(rom_stats_count, rom_names_count) - 1)) # Commented out
+            # print("If you intend to add new Pokemon beyond this, you must first EXPAND your ROM in Hex Maniac Advance.") # Commented out
+            continue # Skip this row
+
+
+        stats_entry = pokemon_stats_table[poke_id]
+        name_entry = pokemon_names_table[poke_id] # This is a ModelArrayElement for the name string
+
+
+        # --- Update Pokemon Names ---
+        name_entry.name = csv_row["Name"]
+
+
+        # --- Update Pokemon Stats (use lowercase properties as per diagnostic) ---
+        stats_entry.type1 = csv_row["Type1"]
+        stats_entry.type2 = csv_row["Type2"]
+
+        stats_entry.hp = int(csv_row["HP"])
+        stats_entry.attack = int(csv_row["Attack"])
+        setattr(stats_entry, "def", int(csv_row["Defense"])) # Use setattr for 'def' keyword
+        stats_entry.spatk = int(csv_row["SpecialAttack"])
+        stats_entry.spdef = int(csv_row["SpecialDefense"])
+        stats_entry.speed = int(csv_row["Speed"])
+
+        stats_entry.ability1 = csv_row["Ability1"]
+        stats_entry.ability2 = csv_row["Ability2"] # Handle empty string for single ability if needed in CSV
+
+        stats_entry.catchRate = int(csv_row["CatchRate"])
+        stats_entry.genderratio = csv_row["GenderRatio"]
+        stats_entry.egg1 = csv_row["EggGroup1"]
+        stats_entry.egg2 = csv_row["EggGroup2"]
+
+        stats_entry.baseExp = int(csv_row["BaseExperience"])
+        stats_entry.basehappiness = int(csv_row["BaseFriendship"])
+        stats_entry.growthrate = csv_row["GrowthRate"]
+
+        # Increment the counter for successful imports
+        successful_imports_count += 1 
+        # print("Successfully imported data for Pokemon ID {}: {}".format(poke_id, csv_row["Name"])) # This line is now commented out
+
+    except KeyError as ke:
+        print("Error processing Pokemon ID {} from CSV: Missing column '{}'. Skipping row.".format(csv_row.get("ID", "N/A"), ke))
+    except ValueError as ve:
+        print("Error processing Pokemon ID {} from CSV: Data conversion failed ({}). Check numerical values. Skipping row.".format(csv_row.get("ID", "N/A"), ve))
+    except Exception as e:
+        print("An unexpected error occurred for Pokemon ID {} from CSV: {}. Skipping row.".format(csv_row.get("ID", "N/A"), e))
+
+print("\n--- Pokemon Data Import Finished ---")
+print("Successfully imported data for {} Pokemon from CSV.".format(successful_imports_count))
+print("IMPORTANT: Changes are currently in Hex Maniac Advance's memory only.")
+print("You MUST save your ROM (File -> Save) in Hex Maniac Advance to apply the changes permanently.")
+print("Remember to manually update Pokedex data (Species, Pokedex Entry, Height, Weight) for these Pokemon.")
