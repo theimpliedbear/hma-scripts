@@ -1,0 +1,113 @@
+import csv
+from System.IO import File
+
+# --- Configuration ---
+OUTPUT_CSV_FILE_PATH = r"C:\Export\exported_pokedex_data.csv"
+START_POKEMON_ID = 0
+END_POKEMON_ID = 411
+
+# --- Script Logic ---
+
+print("--- Starting Pokemon Data Export (Names & Stats Only) ---")
+
+# Check if a ROM is loaded by attempting to access a table directly from the 'data' object.
+try:
+    test_table_access = data.pokemon.stats
+except NameError:
+    print("Error: 'data' object not found, suggesting no ROM is loaded. Please open a ROM in Hex Maniac Advance.")
+    exit()
+except Exception as e:
+    print("Error: Could not access 'data.pokemon.stats'. Ensure a ROM is loaded and recognized by HMA.")
+    print("Detailed error: {}".format(e))
+    exit()
+
+print("Attempting to export Pokemon data to: {}".format(OUTPUT_CSV_FILE_PATH))
+
+try:
+    pokemon_stats_table = data.pokemon.stats
+    pokemon_names_table = data.pokemon.names
+    
+    # Explicitly NOT accessing data.pokedex.data to avoid AnchorGroup issues
+
+except Exception as e:
+    print("Error accessing HMA tables directly: {}".format(e))
+    print("Ensure ROM is loaded and tables are correctly identified by HMA.")
+    exit()
+
+# Define the headers for your CSV
+CSV_HEADERS = [
+    "ID", "Name",
+    "Type1", "Type2", "HP", "Attack", "Defense", "SpecialAttack", "SpecialDefense", "Speed",
+    "Ability1", "Ability2", "CatchRate", "GenderRatio", "EggGroup1", "EggGroup2",
+    "BaseExperience", "BaseFriendship", "GrowthRate", "EXPGroup"
+]
+
+exported_data = []
+
+# Use len() for ModelTable objects to get counts, as confirmed by diagnostics
+pokemon_stats_count = len(pokemon_stats_table)
+pokemon_names_count = len(pokemon_names_table)
+
+# Determine the effective end ID based on the smallest table size
+effective_end_id = min(END_POKEMON_ID,
+                       pokemon_stats_count - 1,
+                       pokemon_names_count - 1)
+
+# The main data extraction loop starts here
+for poke_id in range(START_POKEMON_ID, effective_end_id + 1):
+    try:
+        stats_entry = pokemon_stats_table[poke_id] # This returns a ModelArrayElement
+        name_entry = pokemon_names_table[poke_id] # This also returns a ModelArrayElement
+
+        # THIS IS THE SNIPPET YOU ASKED FOR - THE MINIMAL ROW_DATA DICTIONARY
+        row_data = {
+            "ID": poke_id,
+            "Name": str(name_entry.name), # Ensure its explicitly a string
+            "Type1": str(stats_entry.type1),
+            "Type2": str(stats_entry.type2),
+            "HP": stats_entry.hp,
+            "Attack": stats_entry.attack,
+            "Defense": getattr(stats_entry, "def"),
+            "SpecialAttack": stats_entry.spatk,
+            "SpecialDefense": stats_entry.spdef,
+            "Speed": stats_entry.speed,
+            "Ability1": str(stats_entry.ability1),
+            "Ability2": str(stats_entry.ability2),
+            "CatchRate": stats_entry.catchRate,
+            "GenderRatio": str(stats_entry.genderratio),
+            "EggGroup1": str(stats_entry.egg1),
+            "EggGroup2": str(stats_entry.egg2),
+            "BaseExperience": stats_entry.baseExp,
+            "BaseFriendship": stats_entry.basehappiness,
+            "GrowthRate": str(stats_entry.growthrate),
+            
+        }
+        exported_data.append(row_data)
+
+    except Exception as e:
+        print("Error exporting data for Pokemon ID {}: {}".format(poke_id, e))
+        print("Skipping this Pokemon and continuing...")
+
+# The file writing block was NOT present in the script at this point,
+# as the syntax error was occurring before it.
+# So, the script would end here, and youd be looking for the CSV manually.
+# --- FILE WRITING BLOCK STARTS HERE ---
+try:
+    with File.CreateText(OUTPUT_CSV_FILE_PATH) as file:
+        # Manually write the header row
+        file.WriteLine(",".join(CSV_HEADERS)) # .WriteLine is a .NET method that works with StreamWriter
+
+        # Manually write each data row
+        for row in exported_data:
+            # Extract values in the order defined by CSV_HEADERS
+            # Use .get() with a default empty string for robustness in case a key is missing
+            # Ensure all values are converted to string
+            row_values = [str(row.get(header, "")) for header in CSV_HEADERS]
+            file.WriteLine(",".join(row_values))
+
+    print("Successfully exported {} Pokemon to {}".format(len(exported_data), OUTPUT_CSV_FILE_PATH))
+except Exception as e:
+    print("Error writing CSV file: {}".format(e))
+    print("Please ensure the directory C:\\Export exists and you have write permissions.")
+
+print("--- Export script finished ---")
